@@ -18,7 +18,7 @@ app.get('/test', (req, res) => {
   res.json({ message: 'Backend is working!' });
 });
 
-// Fetch ideas (suggestions in UserVoice API)
+// Fetch suggestions
 app.post('/api/ideas', async (req, res) => {
   const { apiToken, subdomain } = req.body;
 
@@ -80,5 +80,4 @@ app.post('/api/comments/:ideaId', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`UserVoice proxy server running on port ${PORT}`);
-});
 });
