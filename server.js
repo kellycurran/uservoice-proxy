@@ -321,7 +321,7 @@ function renderIdeas(ideas) {
     card.innerHTML = \`
       <div class="idea-title">\${idea.title}</div>
       <div class="idea-meta">
-        <span>👍 \${idea.supporters_count || 0}</span>
+        <span>👍 \${idea.votes_count || 0}</span>
         <span>💬 \${idea.comments_count || 0}</span>
       </div>
       <div class="idea-category">\${idea.state || 'published'}</div>
@@ -339,7 +339,7 @@ async function showDetail(idea) {
   const panel = document.getElementById('detailPanel');
   panel.classList.add('active');
   document.getElementById('detailTitle').textContent = idea.title;
-  document.getElementById('detailVotes').textContent = idea.supporters_count || 0;
+  document.getElementById('detailVotes').textContent = idea.votes_count || 0;
   document.getElementById('detailComments').textContent = idea.comments_count || 0;
   window.scrollTo({ top: panel.offsetTop - 100, behavior: 'smooth' });
 }
