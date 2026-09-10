@@ -9,7 +9,8 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 // Proxy endpoint for UserVoice API
-app.post('/api/uservoice/:endpoint(*)', async (req, res) => {
+app.post('/api/uservoice/*', async (req, res) => {
+  const endpoint = req.params[0];
   const { apiKey, apiToken, subdomain } = req.body;
   const endpoint = req.params.endpoint;
 
