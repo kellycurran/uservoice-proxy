@@ -257,8 +257,19 @@ tr:hover td { background: var(--bg-surface); }
 <script>
 let allIdeas = [];
 let categoriesMap = {};
+let commentsByIdea = {};
 let charts = {};
 let sortState = { field: 'supporters_count', dir: 'desc' };
+
+function commentSuggestionId(comment) {
+  if (comment.links) {
+    if (comment.links.suggestion) return comment.links.suggestion;
+    if (comment.links.suggestions) return comment.links.suggestions;
+  }
+  if (comment.suggestion_id) return comment.suggestion_id;
+  if (comment.suggestion && comment.suggestion.id) return comment.suggestion.id;
+  return null;
+}
 
 document.addEventListener('DOMContentLoaded', () => {
   loadConfig();
@@ -327,6 +338,14 @@ async function refreshData() {
       category: idea.links && idea.links.category
     }));
 
+    commentsByIdea = {};
+    (data.comments || []).forEach(c => {
+      const sid = commentSuggestionId(c);
+      if (!sid) return;
+      if (!commentsByIdea[sid]) commentsByIdea[sid] = [];
+      commentsByIdea[sid].push(c);
+    });
+
     try {
       const catData = await catRes.json();
       categoriesMap = {};
@@ -392,16 +411,26 @@ function renderTiles(ideas) {
   const recentIdeas = ideas.filter(i => new Date(i.created_at) >= thirtyDaysAgo);
   const totalVotes = ideas.reduce((s, i) => s + (i.supporters_count || 0), 0);
   const totalComments = ideas.reduce((s, i) => s + (i.comments_count || 0), 0);
-  const recentUpdated = ideas.filter(i => new Date(i.updated_at) >= thirtyDaysAgo);
-  const approxNewComments = recentUpdated.reduce((s, i) => s + (i.comments_count || 0), 0);
   const topFeature = ideas.reduce((max, i) => (i.supporters_count || 0) > (max.supporters_count || 0) ? i : max, ideas[0] || {});
+
+  const allComments = Object.values(commentsByIdea).flat();
+  const hasCommentDates = allComments.length > 0 && allComments.some(c => c.created_at);
+  let newCommentsLabel = 'New Comments (30 Days)';
+  let newCommentsValue;
+  if (hasCommentDates) {
+    newCommentsValue = allComments.filter(c => c.created_at && new Date(c.created_at) >= thirtyDaysAgo).length.toLocaleString();
+  } else {
+    newCommentsLabel = 'New Comments (approx.)';
+    const recentUpdated = ideas.filter(i => new Date(i.updated_at) >= thirtyDaysAgo);
+    newCommentsValue = recentUpdated.reduce((s, i) => s + (i.comments_count || 0), 0).toLocaleString();
+  }
 
   const tiles = [
     { label: 'Total Requests', value: ideas.length.toLocaleString(), sub: 'All time' },
     { label: 'New (30 Days)', value: recentIdeas.length.toLocaleString(), sub: 'Ideas submitted', up: true },
     { label: 'Total Votes', value: totalVotes.toLocaleString(), sub: 'Community votes, all time' },
     { label: 'Total Comments', value: totalComments.toLocaleString(), sub: 'All time' },
-    { label: 'New Comments (approx.)', value: approxNewComments.toLocaleString(), sub: 'On ideas active in last 30d*' },
+    { label: newCommentsLabel, value: newCommentsValue, sub: hasCommentDates ? 'Last 30 days' : 'On ideas active in last 30d*' },
     { label: 'Top Feature All-Time', value: (topFeature.supporters_count || 0).toLocaleString() + ' votes', sub: (topFeature.title || '—').slice(0, 40) }
   ];
 
@@ -559,32 +588,37 @@ async function showDetail(idea) {
   document.getElementById('detailTitle').textContent = idea.title;
   document.getElementById('detailVotes').textContent = idea.supporters_count || 0;
   document.getElementById('detailComments').textContent = idea.comments_count || 0;
-  document.getElementById('commentsList').innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-secondary);">Loading comments...</div>';
   window.scrollTo({ top: panel.offsetTop - 20, behavior: 'smooth' });
 
-  const uvSubdomain = document.getElementById('uvSubdomain').value;
-  const uvApiToken = document.getElementById('uvApiToken').value;
+  let comments = commentsByIdea[idea.id] || [];
 
-  try {
-    const response = await fetch('/api/comments/' + idea.id, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subdomain: uvSubdomain, apiToken: uvApiToken })
-    });
-    const data = await response.json();
-    const comments = data.comments || [];
-    if (comments.length === 0) {
-      document.getElementById('commentsList').innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-secondary);">No comments</div>';
-    } else {
-      document.getElementById('commentsList').innerHTML = comments.map(c => \`
-        <div class="comment">
-          <div class="comment-author">\${escapeHtml((c.creator && c.creator.name) || 'Anonymous')}</div>
-          <div>\${escapeHtml(c.body || c.text || '')}</div>
-        </div>
-      \`).join('');
+  if (comments.length === 0 && (idea.comments_count || 0) > 0) {
+    document.getElementById('commentsList').innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-secondary);">Loading comments...</div>';
+    const uvSubdomain = document.getElementById('uvSubdomain').value;
+    const uvApiToken = document.getElementById('uvApiToken').value;
+    try {
+      const response = await fetch('/api/comments/' + idea.id, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subdomain: uvSubdomain, apiToken: uvApiToken })
+      });
+      const data = await response.json();
+      comments = data.comments || [];
+    } catch (e) {
+      document.getElementById('commentsList').innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-secondary);">Could not load comments</div>';
+      return;
     }
-  } catch (e) {
-    document.getElementById('commentsList').innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-secondary);">Could not load comments</div>';
+  }
+
+  if (comments.length === 0) {
+    document.getElementById('commentsList').innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-secondary);">No comments</div>';
+  } else {
+    document.getElementById('commentsList').innerHTML = comments.map(c => \`
+      <div class="comment">
+        <div class="comment-author">\${escapeHtml((c.creator && c.creator.name) || 'Anonymous')}</div>
+        <div>\${escapeHtml(c.body || c.text || '')}</div>
+      </div>
+    \`).join('');
   }
 }
 </script>
@@ -614,12 +648,16 @@ app.post('/api/ideas', async (req, res) => {
   try {
     const baseUrl = `https://${subdomain}.uservoice.com/api/v2/admin/suggestions`;
     let allSuggestions = [];
+    let allComments = [];
     let cursor = null;
     let pageCount = 0;
     const maxPages = 100;
 
     while (pageCount < maxPages) {
-      const url = cursor ? `${baseUrl}?cursor=${cursor}` : baseUrl;
+      const params = new URLSearchParams();
+      params.append('includes[]', 'comments');
+      if (cursor) params.append('cursor', cursor);
+      const url = `${baseUrl}?${params.toString()}`;
 
       const response = await fetch(url, {
         headers: {
@@ -639,6 +677,10 @@ app.post('/api/ideas', async (req, res) => {
         allSuggestions = allSuggestions.concat(data.suggestions);
       }
 
+      if (data.comments && data.comments.length > 0) {
+        allComments = allComments.concat(data.comments);
+      }
+
       if (data.pagination && data.pagination.cursor) {
         cursor = data.pagination.cursor;
         pageCount++;
@@ -647,7 +689,7 @@ app.post('/api/ideas', async (req, res) => {
       }
     }
 
-    res.json({ suggestions: allSuggestions });
+    res.json({ suggestions: allSuggestions, comments: allComments });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
