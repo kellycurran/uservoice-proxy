@@ -779,16 +779,15 @@ function renderPieChart(id, data) {
 }
 
 function renderIdeas(ideas) {
-  const filtered = applyFilters();
   const grid = document.getElementById('ideasGrid');
   grid.innerHTML = '';
 
-  if (filtered.length === 0) {
+  if (ideas.length === 0) {
     grid.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><p>No ideas match your filters.</p></div>';
     return;
   }
 
-  filtered.forEach(idea => {
+  ideas.forEach(idea => {
     const card = document.createElement('div');
     card.className = 'idea-card';
     card.onclick = () => showDetail(idea);
@@ -1057,3 +1056,4 @@ app.post('/api/comments/:ideaId', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`UserVoice proxy server running on port ${PORT}`);
 });
+
