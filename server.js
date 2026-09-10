@@ -539,7 +539,7 @@ function updateCharts() {
   const monthData = {};
   allIdeas.forEach(idea => {
     const date = new Date(idea.created_at);
-    const key = \`\${date.getFullYear()}-\${String(date.getMonth() + 1).padStart(2, '0')}\`;
+    const key = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
     monthData[key] = (monthData[key] || 0) + 1;
   });
 
@@ -590,33 +590,14 @@ function updateTopLists() {
   const topVoted = allIdeas.sort((a, b) => (b.response_count || 0) - (a.response_count || 0)).slice(0, 5);
   const topDiscussed = allIdeas.sort((a, b) => (b.comments_count || 0) - (a.comments_count || 0)).slice(0, 5);
 
-  document.getElementById('mostVotedList').innerHTML = topVoted.map((idea, i) => \`
-    <div class="item">
-      <div class="item-name">\${i + 1}. \${idea.title}</div>
-      <div class="item-stat">\${idea.response_count || 0} votes</div>
-    </div>
-  \`).join('');
+  document.getElementById('mostVotedList').innerHTML = topVoted.map((idea, i) => '<div class="item"><div class="item-name">' + (i + 1) + '. ' + idea.title + '</div><div class="item-stat">' + (idea.response_count || 0) + ' votes</div></div>').join('');
 
-  document.getElementById('mostDiscussedList').innerHTML = topDiscussed.map((idea, i) => \`
-    <div class="item">
-      <div class="item-name">\${i + 1}. \${idea.title}</div>
-      <div class="item-stat">\${idea.comments_count || 0} comments</div>
-    </div>
-  \`).join('');
+  document.getElementById('mostDiscussedList').innerHTML = topDiscussed.map((idea, i) => '<div class="item"><div class="item-name">' + (i + 1) + '. ' + idea.title + '</div><div class="item-stat">' + (idea.comments_count || 0) + ' comments</div></div>').join('');
 }
 
 function updateTable() {
   const sorted = allIdeas.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  const rows = sorted.slice(0, 50).map(idea => \`
-    <tr>
-      <td>\${idea.title}</td>
-      <td>\${idea.category?.name || '—'}</td>
-      <td><span class="badge review">Published</span></td>
-      <td>\${idea.response_count || 0}</td>
-      <td>\${idea.comments_count || 0}</td>
-      <td>\${new Date(idea.created_at).toLocaleDateString()}</td>
-    </tr>
-  \`).join('');
+  const rows = sorted.slice(0, 50).map(idea => '<tr><td>' + idea.title + '</td><td>' + (idea.category?.name || '—') + '</td><td><span class="badge review">Published</span></td><td>' + (idea.response_count || 0) + '</td><td>' + (idea.comments_count || 0) + '</td><td>' + new Date(idea.created_at).toLocaleDateString() + '</td></tr>').join('');
 
   document.getElementById('tableBody').innerHTML = rows;
 }
@@ -638,7 +619,7 @@ app.post('/api/ideas', async (req, res) => {
   }
 
   try {
-    const url = \`https://\${subdomain}.uservoice.com/api/v2/admin/suggestions\`;
+    const url = 'https://' + subdomain + '.uservoice.com/api/v2/admin/suggestions';
     const response = await fetch(url, {
       headers: {
         'Authorization': \`Bearer \${apiToken}\`,
@@ -648,7 +629,7 @@ app.post('/api/ideas', async (req, res) => {
 
     if (!response.ok) {
       const errorText = await response.text();
-      return res.status(response.status).json({ error: \`UserVoice error: \${response.status}\`, details: errorText });
+      return res.status(response.status).json({ error: 'UserVoice error: ' + response.status, details: errorText });
     }
 
     const data = await response.json();
@@ -661,6 +642,4 @@ app.post('/api/ideas', async (req, res) => {
 app.listen(PORT, () => {
   console.log(\`Server running on port \${PORT}\`);
 });
-
-
 
