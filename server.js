@@ -77,7 +77,25 @@ app.post('/api/comments/:ideaId', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+// Test endpoint with Bearer token
+app.post('/api/test-bearer', async (req, res) => {
+  const { apiToken, subdomain } = req.body;
 
+  try {
+    const url = `https://${subdomain}.uservoice.com/api/v2/admin/users/current`;
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+        'Accept': 'application/json'
+      }
+    });
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 app.listen(PORT, () => {
   console.log(`UserVoice proxy server running on port ${PORT}`);
 });
