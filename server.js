@@ -263,10 +263,12 @@ async function refreshData() {
 
 function renderCharts(ideas) {
   const monthIdeas = {};
+  const monthVotes = {};
   ideas.forEach(idea => {
     const date = new Date(idea.created_at);
     const key = \`\${date.getFullYear()}-\${String(date.getMonth() + 1).padStart(2, '0')}\`;
     monthIdeas[key] = (monthIdeas[key] || 0) + 1;
+    monthVotes[key] = (monthVotes[key] || 0) + (idea.votes_count || 0);
   });
 
   const sorted = Object.entries(monthIdeas).sort();
@@ -281,6 +283,25 @@ function renderCharts(ideas) {
         data: sorted.map(([, c]) => c),
         borderColor: '#0066cc',
         backgroundColor: 'rgba(0, 102, 204, 0.1)',
+        tension: 0.3,
+        fill: true,
+      }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } } }
+  });
+
+  const sortedVotes = Object.entries(monthVotes).sort();
+  const votesCtx = document.getElementById('votesChart').getContext('2d');
+  if (charts['votes']) charts['votes'].destroy();
+  charts['votes'] = new Chart(votesCtx, {
+    type: 'line',
+    data: {
+      labels: sortedVotes.map(([m]) => m),
+      datasets: [{
+        label: 'Votes',
+        data: sortedVotes.map(([, c]) => c),
+        borderColor: '#28a745',
+        backgroundColor: 'rgba(40, 167, 69, 0.1)',
         tension: 0.3,
         fill: true,
       }]
