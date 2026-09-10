@@ -18,7 +18,7 @@ app.get('/test', (req, res) => {
   res.json({ message: 'Backend is working!' });
 });
 
-// Fetch ideas
+// Fetch ideas (suggestions in UserVoice API)
 app.post('/api/ideas', async (req, res) => {
   const { apiToken, subdomain } = req.body;
 
@@ -27,7 +27,7 @@ app.post('/api/ideas', async (req, res) => {
   }
 
   try {
-    const url = `https://${subdomain}.uservoice.com/api/v2/ideas`;
+    const url = `https://${subdomain}.uservoice.com/api/v2/admin/suggestions`;
 
     const response = await fetch(url, {
       headers: {
@@ -48,7 +48,7 @@ app.post('/api/ideas', async (req, res) => {
   }
 });
 
-// Fetch comments for an idea
+// Fetch comments for a suggestion
 app.post('/api/comments/:ideaId', async (req, res) => {
   const { apiToken, subdomain } = req.body;
   const { ideaId } = req.params;
@@ -58,7 +58,7 @@ app.post('/api/comments/:ideaId', async (req, res) => {
   }
 
   try {
-    const url = `https://${subdomain}.uservoice.com/api/v2/ideas/${ideaId}/comments`;
+    const url = `https://${subdomain}.uservoice.com/api/v2/admin/suggestions/${ideaId}/comments`;
 
     const response = await fetch(url, {
       headers: {
@@ -77,25 +77,8 @@ app.post('/api/comments/:ideaId', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-// Test endpoint with Bearer token
-app.post('/api/test-bearer', async (req, res) => {
-  const { apiToken, subdomain } = req.body;
 
-  try {
-    const url = `https://${subdomain}.uservoice.com/api/v2/admin/users/current`;
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${apiToken}`,
-        'Accept': 'application/json'
-      }
-    });
-
-    const data = await response.json();
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 app.listen(PORT, () => {
   console.log(`UserVoice proxy server running on port ${PORT}`);
+});
 });
