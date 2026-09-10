@@ -56,6 +56,18 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Test endpoint to verify backend works
+app.get('/test', (req, res) => {
+  console.log('[TEST] GET /test called');
+  res.json({ message: 'Backend is working!', timestamp: new Date().toISOString() });
+});
+
+// Test POST endpoint
+app.post('/test', (req, res) => {
+  console.log('[TEST] POST /test called with body:', req.body);
+  res.json({ message: 'Backend POST is working!', received: req.body, timestamp: new Date().toISOString() });
+});
+
 app.listen(PORT, () => {
   console.log(`UserVoice proxy server running on port ${PORT}`);
 });
