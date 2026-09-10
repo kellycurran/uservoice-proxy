@@ -20,19 +20,18 @@ app.get('/test', (req, res) => {
 
 // Fetch ideas
 app.post('/api/ideas', async (req, res) => {
-  const { apiKey, apiToken, subdomain } = req.body;
+  const { apiToken, subdomain } = req.body;
 
-  if (!apiKey || !apiToken || !subdomain) {
+  if (!apiToken || !subdomain) {
     return res.status(400).json({ error: 'Missing credentials' });
   }
 
   try {
-    const auth = Buffer.from(`${apiKey}:${apiToken}`).toString('base64');
     const url = `https://${subdomain}.uservoice.com/api/v2/ideas`;
 
     const response = await fetch(url, {
       headers: {
-        'Authorization': `Basic ${auth}`,
+        'Authorization': `Bearer ${apiToken}`,
         'Accept': 'application/json'
       }
     });
@@ -51,20 +50,19 @@ app.post('/api/ideas', async (req, res) => {
 
 // Fetch comments for an idea
 app.post('/api/comments/:ideaId', async (req, res) => {
-  const { apiKey, apiToken, subdomain } = req.body;
+  const { apiToken, subdomain } = req.body;
   const { ideaId } = req.params;
 
-  if (!apiKey || !apiToken || !subdomain) {
+  if (!apiToken || !subdomain) {
     return res.status(400).json({ error: 'Missing credentials' });
   }
 
   try {
-    const auth = Buffer.from(`${apiKey}:${apiToken}`).toString('base64');
     const url = `https://${subdomain}.uservoice.com/api/v2/ideas/${ideaId}/comments`;
 
     const response = await fetch(url, {
       headers: {
-        'Authorization': `Basic ${auth}`,
+        'Authorization': `Bearer ${apiToken}`,
         'Accept': 'application/json'
       }
     });
