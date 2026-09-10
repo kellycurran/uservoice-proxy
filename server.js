@@ -680,7 +680,7 @@ async function fetchIdeas(subdomain, apiKey, token) {
       throw new Error(\`Backend error: \${response.status} - \${data.error || data.details || 'Unknown error'}\`);
     }
 
-    return data.data || [];
+    return data.suggestions || [];
   } catch (error) {
     console.error('fetchIdeas error:', error);
     throw error;
@@ -890,7 +890,7 @@ async function fetchComments(ideaId) {
     });
     if (!response.ok) return [];
     const data = await response.json();
-    return data.data || [];
+    return data.comments || [];
   } catch {
     return [];
   }
@@ -1056,4 +1056,5 @@ app.post('/api/comments/:ideaId', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`UserVoice proxy server running on port ${PORT}`);
 });
+
 
