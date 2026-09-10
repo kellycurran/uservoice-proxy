@@ -319,6 +319,7 @@ async function refreshData() {
   setStatus('Fetching data...', 'loading');
 
   try {
+    setStatus('Fetching ideas...', 'loading');
     const [ideasRes, catRes] = await Promise.all([
       fetch('/api/ideas', {
         method: 'POST',
@@ -338,20 +339,31 @@ async function refreshData() {
       category: idea.links && idea.links.category
     }));
 
-    commentsByIdea = {};
-    (data.comments || []).forEach(c => {
-      const sid = commentSuggestionId(c);
-      if (!sid) return;
-      if (!commentsByIdea[sid]) commentsByIdea[sid] = [];
-      commentsByIdea[sid].push(c);
-    });
-
     try {
       const catData = await catRes.json();
       categoriesMap = {};
       (catData.categories || []).forEach(c => { categoriesMap[c.id] = c.name; });
     } catch (e) {
       categoriesMap = {};
+    }
+
+    setStatus('Fetching comments...', 'loading');
+    commentsByIdea = {};
+    try {
+      const commentsRes = await fetch('/api/all-comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subdomain: uvSubdomain, apiToken: uvApiToken })
+      });
+      const commentsData = await commentsRes.json();
+      (commentsData.comments || []).forEach(c => {
+        const sid = commentSuggestionId(c);
+        if (!sid) return;
+        if (!commentsByIdea[sid]) commentsByIdea[sid] = [];
+        commentsByIdea[sid].push(c);
+      });
+    } catch (e) {
+      console.error('Failed to load comments:', e);
     }
 
     populateFilterOptions();
@@ -582,7 +594,7 @@ function showDetailById(id) {
   if (idea) showDetail(idea);
 }
 
-async function showDetail(idea) {
+function showDetail(idea) {
   const panel = document.getElementById('detailPanel');
   panel.classList.add('active');
   document.getElementById('detailTitle').textContent = idea.title;
@@ -590,33 +602,19 @@ async function showDetail(idea) {
   document.getElementById('detailComments').textContent = idea.comments_count || 0;
   window.scrollTo({ top: panel.offsetTop - 20, behavior: 'smooth' });
 
-  let comments = commentsByIdea[idea.id] || [];
-
-  if (comments.length === 0 && (idea.comments_count || 0) > 0) {
-    document.getElementById('commentsList').innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-secondary);">Loading comments...</div>';
-    const uvSubdomain = document.getElementById('uvSubdomain').value;
-    const uvApiToken = document.getElementById('uvApiToken').value;
-    try {
-      const response = await fetch('/api/comments/' + idea.id, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subdomain: uvSubdomain, apiToken: uvApiToken })
-      });
-      const data = await response.json();
-      comments = data.comments || [];
-    } catch (e) {
-      document.getElementById('commentsList').innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-secondary);">Could not load comments</div>';
-      return;
-    }
-  }
+  const comments = (commentsByIdea[idea.id] || []).slice().sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
   if (comments.length === 0) {
-    document.getElementById('commentsList').innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-secondary);">No comments</div>';
+    const note = (idea.comments_count || 0) > 0
+      ? \`This idea has \${idea.comments_count} comment(s) per UserVoice, but none matched in the bulk comments fetch — the linking field may need adjusting.\`
+      : 'No comments';
+    document.getElementById('commentsList').innerHTML = \`<div style="text-align:center; padding:20px; color:var(--text-secondary);">\${note}</div>\`;
   } else {
     document.getElementById('commentsList').innerHTML = comments.map(c => \`
       <div class="comment">
         <div class="comment-author">\${escapeHtml((c.creator && c.creator.name) || 'Anonymous')}</div>
         <div>\${escapeHtml(c.body || c.text || '')}</div>
+        <div style="font-size:11px; color:var(--text-secondary); margin-top:4px;">\${c.created_at ? new Date(c.created_at).toLocaleDateString() : ''}</div>
       </div>
     \`).join('');
   }
@@ -648,16 +646,12 @@ app.post('/api/ideas', async (req, res) => {
   try {
     const baseUrl = `https://${subdomain}.uservoice.com/api/v2/admin/suggestions`;
     let allSuggestions = [];
-    let allComments = [];
     let cursor = null;
     let pageCount = 0;
     const maxPages = 100;
 
     while (pageCount < maxPages) {
-      const params = new URLSearchParams();
-      params.append('includes[]', 'comments');
-      if (cursor) params.append('cursor', cursor);
-      const url = `${baseUrl}?${params.toString()}`;
+      const url = cursor ? `${baseUrl}?cursor=${cursor}` : baseUrl;
 
       const response = await fetch(url, {
         headers: {
@@ -677,6 +671,51 @@ app.post('/api/ideas', async (req, res) => {
         allSuggestions = allSuggestions.concat(data.suggestions);
       }
 
+      if (data.pagination && data.pagination.cursor) {
+        cursor = data.pagination.cursor;
+        pageCount++;
+      } else {
+        break;
+      }
+    }
+
+    res.json({ suggestions: allSuggestions });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/all-comments', async (req, res) => {
+  const { apiToken, subdomain } = req.body;
+
+  if (!apiToken || !subdomain) {
+    return res.status(400).json({ error: 'Missing credentials' });
+  }
+
+  try {
+    const baseUrl = `https://${subdomain}.uservoice.com/api/v2/admin/comments`;
+    let allComments = [];
+    let cursor = null;
+    let pageCount = 0;
+    const maxPages = 200;
+
+    while (pageCount < maxPages) {
+      const url = cursor ? `${baseUrl}?cursor=${cursor}` : baseUrl;
+
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return res.status(response.status).json({ error: `UserVoice error: ${response.status}`, details: errorText });
+      }
+
+      const data = await response.json();
+
       if (data.comments && data.comments.length > 0) {
         allComments = allComments.concat(data.comments);
       }
@@ -689,7 +728,7 @@ app.post('/api/ideas', async (req, res) => {
       }
     }
 
-    res.json({ suggestions: allSuggestions, comments: allComments });
+    res.json({ comments: allComments });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -740,35 +779,6 @@ app.post('/api/categories', async (req, res) => {
     res.json({ categories: allCategories });
   } catch (error) {
     res.json({ categories: [] });
-  }
-});
-
-app.post('/api/comments/:ideaId', async (req, res) => {
-  const { apiToken, subdomain } = req.body;
-  const { ideaId } = req.params;
-
-  if (!apiToken || !subdomain) {
-    return res.status(400).json({ error: 'Missing credentials' });
-  }
-
-  try {
-    const url = `https://${subdomain}.uservoice.com/api/v2/admin/suggestions/${ideaId}/comments`;
-
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${apiToken}`,
-        'Accept': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      return res.status(response.status).json({ error: `UserVoice error: ${response.status}` });
-    }
-
-    const data = await response.json();
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
 });
 
