@@ -8,6 +8,27 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(url, options, maxRetries = 6) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await fetch(url, options);
+
+    if (response.status === 429) {
+      const retryAfterHeader = response.headers.get('retry-after');
+      const waitMs = retryAfterHeader ? parseInt(retryAfterHeader, 10) * 1000 : Math.min(1000 * Math.pow(2, attempt), 15000);
+      if (attempt < maxRetries) {
+        await sleep(waitMs);
+        continue;
+      }
+    }
+
+    return response;
+  }
+}
+
 const dashboardHTML = `<!DOCTYPE html>
 <html>
 <head>
@@ -653,7 +674,7 @@ app.post('/api/ideas', async (req, res) => {
     while (pageCount < maxPages) {
       const url = cursor ? `${baseUrl}?cursor=${cursor}` : baseUrl;
 
-      const response = await fetch(url, {
+      const response = await fetchWithRetry(url, {
         headers: {
           'Authorization': `Bearer ${apiToken}`,
           'Accept': 'application/json'
@@ -674,6 +695,7 @@ app.post('/api/ideas', async (req, res) => {
       if (data.pagination && data.pagination.cursor) {
         cursor = data.pagination.cursor;
         pageCount++;
+        await sleep(120);
       } else {
         break;
       }
@@ -702,7 +724,7 @@ app.post('/api/all-comments', async (req, res) => {
     while (pageCount < maxPages) {
       const url = cursor ? `${baseUrl}?cursor=${cursor}` : baseUrl;
 
-      const response = await fetch(url, {
+      const response = await fetchWithRetry(url, {
         headers: {
           'Authorization': `Bearer ${apiToken}`,
           'Accept': 'application/json'
@@ -723,6 +745,7 @@ app.post('/api/all-comments', async (req, res) => {
       if (data.pagination && data.pagination.cursor) {
         cursor = data.pagination.cursor;
         pageCount++;
+        await sleep(120);
       } else {
         break;
       }
@@ -751,7 +774,7 @@ app.post('/api/categories', async (req, res) => {
     while (pageCount < maxPages) {
       const url = cursor ? `${baseUrl}?cursor=${cursor}` : baseUrl;
 
-      const response = await fetch(url, {
+      const response = await fetchWithRetry(url, {
         headers: {
           'Authorization': `Bearer ${apiToken}`,
           'Accept': 'application/json'
@@ -771,6 +794,7 @@ app.post('/api/categories', async (req, res) => {
       if (data.pagination && data.pagination.cursor) {
         cursor = data.pagination.cursor;
         pageCount++;
+        await sleep(120);
       } else {
         break;
       }
