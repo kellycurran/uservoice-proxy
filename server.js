@@ -12,7 +12,6 @@ const PORT = process.env.PORT || 3000;
 app.post('/api/uservoice/*', async (req, res) => {
   const endpoint = req.params[0];
   const { apiKey, apiToken, subdomain } = req.body;
-  const endpoint = req.params.endpoint;
 
   console.log(`[PROXY] POST /api/uservoice/${endpoint}`);
   console.log(`[PROXY] Credentials received: key=${!!apiKey}, token=${!!apiToken}, subdomain=${subdomain}`);
