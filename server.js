@@ -13,13 +13,19 @@ app.post('/api/uservoice/:endpoint(*)', async (req, res) => {
   const { apiKey, apiToken, subdomain } = req.body;
   const endpoint = req.params.endpoint;
 
+  console.log(`[PROXY] POST /api/uservoice/${endpoint}`);
+  console.log(`[PROXY] Credentials received: key=${!!apiKey}, token=${!!apiToken}, subdomain=${subdomain}`);
+
   if (!apiKey || !apiToken || !subdomain) {
+    console.error('[PROXY] Missing credentials');
     return res.status(400).json({ error: 'Missing credentials' });
   }
 
   try {
     const auth = Buffer.from(`${apiKey}:${apiToken}`).toString('base64');
     const url = `https://${subdomain}.uservoice.com/api/v2/${endpoint}`;
+
+    console.log(`[PROXY] Calling: ${url}`);
 
     const response = await fetch(url, {
       headers: {
@@ -28,14 +34,19 @@ app.post('/api/uservoice/:endpoint(*)', async (req, res) => {
       }
     });
 
+    console.log(`[PROXY] Response status: ${response.status}`);
+
     if (!response.ok) {
-      return res.status(response.status).json({ error: `UserVoice API error: ${response.status}` });
+      const errorText = await response.text();
+      console.error(`[PROXY] UserVoice error: ${response.status} - ${errorText}`);
+      return res.status(response.status).json({ error: `UserVoice API error: ${response.status}`, details: errorText });
     }
 
     const data = await response.json();
+    console.log(`[PROXY] Success: got ${data.data?.length || 0} items`);
     res.json(data);
   } catch (error) {
-    console.error('Proxy error:', error);
+    console.error('[PROXY] Error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
