@@ -622,7 +622,7 @@ app.post('/api/ideas', async (req, res) => {
     const url = 'https://' + subdomain + '.uservoice.com/api/v2/admin/suggestions';
     const response = await fetch(url, {
       headers: {
-        'Authorization': \`Bearer \${apiToken}\`,
+        'Authorization': 'Bearer ' + apiToken,
         'Accept': 'application/json'
       }
     });
@@ -640,6 +640,5 @@ app.post('/api/ideas', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(\`Server running on port \${PORT}\`);
+  console.log('Server running on port ' + PORT);
 });
-
