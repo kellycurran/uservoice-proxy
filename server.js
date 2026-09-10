@@ -200,6 +200,10 @@ tr:hover td { background: var(--bg-surface); }
 .comments-list { max-height: 400px; overflow-y: auto; }
 .comment { background: var(--bg-surface); padding: 12px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; }
 .comment-author { font-weight: 600; color: var(--primary); font-size: 12px; }
+.themes-section { margin: 16px 0; padding: 16px; background: var(--primary-light); border-radius: 6px; }
+.themes-section h4 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--primary); margin-bottom: 10px; }
+.themes-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.theme-tag { background: var(--primary); color: white; padding: 5px 12px; border-radius: 14px; font-size: 12px; font-weight: 500; }
 .empty-state { text-align: center; padding: 40px 20px; color: var(--text-secondary); }
 </style>
 </head>
@@ -321,6 +325,10 @@ tr:hover td { background: var(--bg-surface); }
           <div class="stat-value" id="detailComments">0</div>
           <div class="stat-label">Comments</div>
         </div>
+      </div>
+      <div class="themes-section" id="themesSection" style="display:none;">
+        <h4>Key Themes</h4>
+        <div class="themes-list" id="themesList"></div>
       </div>
       <div class="comments-list" id="commentsList"></div>
     </div>
@@ -676,6 +684,11 @@ function showDetail(idea) {
   document.getElementById('detailComments').textContent = idea.comments_count || 0;
   window.scrollTo({ top: panel.offsetTop - 20, behavior: 'smooth' });
 
+  const themesSection = document.getElementById('themesSection');
+  const themesList = document.getElementById('themesList');
+  themesSection.style.display = 'none';
+  themesList.innerHTML = '';
+
   const comments = (commentsByIdea[idea.id] || []).slice().sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
   if (comments.length === 0) {
@@ -691,6 +704,43 @@ function showDetail(idea) {
         <div style="font-size:11px; color:var(--text-secondary); margin-top:4px;">\${c.created_at ? new Date(c.created_at).toLocaleDateString() : ''}</div>
       </div>
     \`).join('');
+
+    analyzeThemes(idea, comments);
+  }
+}
+
+async function analyzeThemes(idea, comments) {
+  const themesSection = document.getElementById('themesSection');
+  const themesList = document.getElementById('themesList');
+  const bodies = comments.map(c => c.body || c.text || '').filter(Boolean);
+
+  if (bodies.length === 0) return;
+
+  themesSection.style.display = 'block';
+  themesList.innerHTML = '<span style="font-size:12px; color:var(--text-secondary);">Analyzing themes...</span>';
+
+  try {
+    const response = await fetch('/api/analyze-themes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: idea.title, comments: bodies })
+    });
+    const data = await response.json();
+
+    if (data.error) {
+      themesList.innerHTML = \`<span style="font-size:12px; color:var(--text-secondary);">\${escapeHtml(data.error)}</span>\`;
+      return;
+    }
+
+    const themes = data.themes || [];
+    if (themes.length === 0) {
+      themesSection.style.display = 'none';
+      return;
+    }
+
+    themesList.innerHTML = themes.map(t => \`<div class="theme-tag">\${escapeHtml(t)}</div>\`).join('');
+  } catch (e) {
+    themesList.innerHTML = '<span style="font-size:12px; color:var(--text-secondary);">Could not analyze themes</span>';
   }
 }
 </script>
@@ -800,6 +850,59 @@ app.post('/api/categories', async (req, res) => {
     res.json({ categories: allCategories });
   } catch (error) {
     res.json({ categories: [] });
+  }
+});
+
+const PORTKEY_MODEL = process.env.PORTKEY_MODEL || '@bedrock/global.anthropic.claude-sonnet-4-6';
+const PORTKEY_GATEWAY_URL = process.env.PORTKEY_GATEWAY_URL || 'https://llm-gateway.xgw.xero-test.com/v1/chat/completions';
+
+app.post('/api/analyze-themes', async (req, res) => {
+  const { title, comments } = req.body;
+
+  if (!process.env.PORTKEY_API_KEY) {
+    return res.status(500).json({ error: 'PORTKEY_API_KEY not configured on the server' });
+  }
+
+  if (!comments || comments.length === 0) {
+    return res.json({ themes: [] });
+  }
+
+  const commentText = comments
+    .map((c, i) => `${i + 1}. ${c}`)
+    .join('\n')
+    .slice(0, 12000);
+
+  try {
+    const response = await fetch(PORTKEY_GATEWAY_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-portkey-api-key': process.env.PORTKEY_API_KEY
+      },
+      body: JSON.stringify({
+        model: PORTKEY_MODEL,
+        max_tokens: 300,
+        messages: [{
+          role: 'user',
+          content: `Here are user comments on a feature request titled "${title}":\n\n${commentText}\n\nExtract 3-5 short key themes from these comments (each theme should be 2-5 words). Respond with ONLY a comma-separated list of themes, nothing else.`
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return res.status(response.status).json({ error: `Portkey error: ${response.status}`, details: errorText });
+    }
+
+    const data = await response.json();
+    const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content
+      ? data.choices[0].message.content
+      : '';
+    const themes = text.split(',').map(t => t.trim()).filter(Boolean);
+
+    res.json({ themes });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
