@@ -29,6 +29,59 @@ async function fetchWithRetry(url, options, maxRetries = 6) {
   }
 }
 
+// In-memory cache, keyed by subdomain. Lost on server restart/sleep.
+const suggestionsCacheBySubdomain = {};
+const commentsCacheBySubdomain = {};
+
+async function fetchAllPaginated({ subdomain, apiToken, resource, cacheStore, res }) {
+  const cache = cacheStore[subdomain] || { byId: {}, lastSync: null };
+  const baseUrl = `https://${subdomain}.uservoice.com/api/v2/admin/${resource}`;
+  const syncStartedAt = new Date().toISOString();
+  let cursor = null;
+  let pageCount = 0;
+  const maxPages = 300;
+
+  while (pageCount < maxPages) {
+    const params = new URLSearchParams();
+    params.append('per_page', '100');
+    if (cursor) {
+      params.append('cursor', cursor);
+    } else if (cache.lastSync) {
+      params.append('updated_after', cache.lastSync);
+    }
+    const url = `${baseUrl}?${params.toString()}`;
+
+    const response = await fetchWithRetry(url, {
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { error: true, status: response.status, details: errorText };
+    }
+
+    const data = await response.json();
+    const records = data[resource] || [];
+    records.forEach(record => { cache.byId[record.id] = record; });
+
+    if (data.pagination && data.pagination.cursor) {
+      cursor = data.pagination.cursor;
+      pageCount++;
+      await sleep(120);
+    } else {
+      break;
+    }
+  }
+
+  cache.lastSync = syncStartedAt;
+  cacheStore[subdomain] = cache;
+
+  return { error: false, records: Object.values(cache.byId) };
+}
+
 const dashboardHTML = `<!DOCTYPE html>
 <html>
 <head>
@@ -665,43 +718,15 @@ app.post('/api/ideas', async (req, res) => {
   }
 
   try {
-    const baseUrl = `https://${subdomain}.uservoice.com/api/v2/admin/suggestions`;
-    let allSuggestions = [];
-    let cursor = null;
-    let pageCount = 0;
-    const maxPages = 100;
+    const result = await fetchAllPaginated({
+      subdomain, apiToken, resource: 'suggestions', cacheStore: suggestionsCacheBySubdomain
+    });
 
-    while (pageCount < maxPages) {
-      const url = cursor ? `${baseUrl}?cursor=${cursor}` : baseUrl;
-
-      const response = await fetchWithRetry(url, {
-        headers: {
-          'Authorization': `Bearer ${apiToken}`,
-          'Accept': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        return res.status(response.status).json({ error: `UserVoice error: ${response.status}`, details: errorText });
-      }
-
-      const data = await response.json();
-
-      if (data.suggestions && data.suggestions.length > 0) {
-        allSuggestions = allSuggestions.concat(data.suggestions);
-      }
-
-      if (data.pagination && data.pagination.cursor) {
-        cursor = data.pagination.cursor;
-        pageCount++;
-        await sleep(120);
-      } else {
-        break;
-      }
+    if (result.error) {
+      return res.status(result.status).json({ error: `UserVoice error: ${result.status}`, details: result.details });
     }
 
-    res.json({ suggestions: allSuggestions });
+    res.json({ suggestions: result.records });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -715,43 +740,15 @@ app.post('/api/all-comments', async (req, res) => {
   }
 
   try {
-    const baseUrl = `https://${subdomain}.uservoice.com/api/v2/admin/comments`;
-    let allComments = [];
-    let cursor = null;
-    let pageCount = 0;
-    const maxPages = 200;
+    const result = await fetchAllPaginated({
+      subdomain, apiToken, resource: 'comments', cacheStore: commentsCacheBySubdomain
+    });
 
-    while (pageCount < maxPages) {
-      const url = cursor ? `${baseUrl}?cursor=${cursor}` : baseUrl;
-
-      const response = await fetchWithRetry(url, {
-        headers: {
-          'Authorization': `Bearer ${apiToken}`,
-          'Accept': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        return res.status(response.status).json({ error: `UserVoice error: ${response.status}`, details: errorText });
-      }
-
-      const data = await response.json();
-
-      if (data.comments && data.comments.length > 0) {
-        allComments = allComments.concat(data.comments);
-      }
-
-      if (data.pagination && data.pagination.cursor) {
-        cursor = data.pagination.cursor;
-        pageCount++;
-        await sleep(120);
-      } else {
-        break;
-      }
+    if (result.error) {
+      return res.status(result.status).json({ error: `UserVoice error: ${result.status}`, details: result.details });
     }
 
-    res.json({ comments: allComments });
+    res.json({ comments: result.records });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
