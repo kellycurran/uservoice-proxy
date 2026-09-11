@@ -75,13 +75,12 @@ async function fetchAllPaginated({ subdomain, apiToken, resource, cacheStore, re
 
   while (pageCount < maxPages) {
     const params = new URLSearchParams();
-    params.append('per_page', '100');
     if (cursor) {
       params.append('cursor', cursor);
     } else if (cache.lastSync) {
       params.append('updated_after', cache.lastSync);
     }
-    const url = `${baseUrl}?${params.toString()}`;
+    const url = params.toString() ? `${baseUrl}?${params.toString()}` : baseUrl;
 
     const response = await fetchWithRetry(url, {
       headers: {
