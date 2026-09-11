@@ -800,17 +800,6 @@ app.get('/test', (req, res) => {
   res.json({ message: 'Backend is working!' });
 });
 
-app.get('/api/debug-env', requireAuth, (req, res) => {
-  const token = process.env.UV_API_TOKEN || '';
-  res.json({
-    subdomain: process.env.UV_SUBDOMAIN || null,
-    tokenLength: token.length,
-    tokenPrefix: token.slice(0, 4),
-    tokenSuffix: token.slice(-4),
-    hasLeadingOrTrailingWhitespace: token !== token.trim()
-  });
-});
-
 app.post('/api/login', (req, res) => {
   const { password } = req.body;
   const expectedPassword = process.env.DASHBOARD_PASSWORD;
