@@ -1,12 +1,44 @@
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
+const crypto = require('crypto');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+function signToken(payload) {
+  const secret = process.env.DASHBOARD_PASSWORD || 'insecure-default-change-me';
+  const payloadStr = Buffer.from(JSON.stringify(payload)).toString('base64');
+  const sig = crypto.createHmac('sha256', secret).update(payloadStr).digest('hex');
+  return `${payloadStr}.${sig}`;
+}
+
+function verifyToken(token) {
+  if (!token || typeof token !== 'string' || !token.includes('.')) return false;
+  const [payloadStr, sig] = token.split('.');
+  const secret = process.env.DASHBOARD_PASSWORD || 'insecure-default-change-me';
+  const expectedSig = crypto.createHmac('sha256', secret).update(payloadStr).digest('hex');
+  if (sig !== expectedSig) return false;
+  try {
+    const payload = JSON.parse(Buffer.from(payloadStr, 'base64').toString());
+    if (payload.exp && Date.now() > payload.exp) return false;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function requireAuth(req, res, next) {
+  const token = req.headers['x-dashboard-auth'];
+  if (!verifyToken(token)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -216,25 +248,22 @@ tr:hover td { background: var(--bg-surface); }
     </div>
     <div class="header-controls">
       <div class="status" id="status">Ready</div>
-      <button class="secondary" onclick="toggleConfig()">Config</button>
       <button onclick="refreshData()">Refresh</button>
+      <button class="secondary" onclick="logout()">Log out</button>
     </div>
   </header>
 
-  <div class="config-panel" id="configPanel">
-    <h2 style="margin-bottom: 20px; font-size: 16px;">API Configuration</h2>
+  <div class="config-panel" id="loginPanel">
+    <h2 style="margin-bottom: 16px; font-size: 16px;">Enter Password</h2>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 15px;">This dashboard is shared internally — ask the dashboard owner for the password.</p>
     <div class="config-grid">
       <div>
-        <label>UserVoice Subdomain</label>
-        <input type="text" id="uvSubdomain" placeholder="xero" value="xero">
-      </div>
-      <div>
-        <label>UserVoice API Token</label>
-        <input type="password" id="uvApiToken" placeholder="Your API Token">
+        <label>Password</label>
+        <input type="password" id="loginPassword" placeholder="Password" onkeydown="if(event.key==='Enter') doLogin()">
       </div>
     </div>
-    <button onclick="saveConfig()" style="margin-right: 10px;">Save Config</button>
-    <button onclick="toggleConfig()" class="secondary">Close</button>
+    <div id="loginError" style="color: var(--danger); font-size: 13px; margin-bottom: 10px; display: none;"></div>
+    <button onclick="doLogin()">Unlock Dashboard</button>
   </div>
 
   <div class="dashboard" id="dashboard">
@@ -353,34 +382,57 @@ function commentSuggestionId(comment) {
   return null;
 }
 
+const AUTH_TOKEN_KEY = 'uv-dashboard-token';
+
 document.addEventListener('DOMContentLoaded', () => {
-  loadConfig();
-  document.getElementById('configPanel').style.display = 'none';
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  if (token) {
+    document.getElementById('loginPanel').style.display = 'none';
+    refreshData();
+  } else {
+    document.getElementById('loginPanel').style.display = 'block';
+  }
 });
 
-function toggleConfig() {
-  const panel = document.getElementById('configPanel');
-  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-}
+async function doLogin() {
+  const password = document.getElementById('loginPassword').value;
+  const errorEl = document.getElementById('loginError');
+  errorEl.style.display = 'none';
 
-function saveConfig() {
-  const config = {
-    uvSubdomain: document.getElementById('uvSubdomain').value,
-    uvApiToken: document.getElementById('uvApiToken').value,
-  };
-  localStorage.setItem('uv-config', JSON.stringify(config));
-  toggleConfig();
-  refreshData();
-}
+  try {
+    const response = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    const data = await response.json();
 
-function loadConfig() {
-  const stored = localStorage.getItem('uv-config');
-  if (stored) {
-    const config = JSON.parse(stored);
-    document.getElementById('uvSubdomain').value = config.uvSubdomain || 'xero';
-    document.getElementById('uvApiToken').value = config.uvApiToken || '';
-    if (config.uvApiToken) refreshData();
+    if (!response.ok) {
+      errorEl.textContent = data.error || 'Login failed';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+    document.getElementById('loginPanel').style.display = 'none';
+    refreshData();
+  } catch (e) {
+    errorEl.textContent = 'Could not reach server';
+    errorEl.style.display = 'block';
   }
+}
+
+function logout() {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  document.getElementById('dashboard').classList.remove('active');
+  document.getElementById('loginPanel').style.display = 'block';
+}
+
+function authHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    'X-Dashboard-Auth': localStorage.getItem(AUTH_TOKEN_KEY) || ''
+  };
 }
 
 function setStatus(message, type = 'info') {
@@ -390,32 +442,25 @@ function setStatus(message, type = 'info') {
 }
 
 async function refreshData() {
-  const uvSubdomain = document.getElementById('uvSubdomain').value;
-  const uvApiToken = document.getElementById('uvApiToken').value;
-
-  if (!uvApiToken) {
-    setStatus('Missing API token', 'error');
-    return;
-  }
-
-  setStatus('Fetching data...', 'loading');
+  setStatus('Fetching ideas...', 'loading');
 
   try {
-    setStatus('Fetching ideas...', 'loading');
     const [ideasRes, catRes] = await Promise.all([
-      fetch('/api/ideas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subdomain: uvSubdomain, apiToken: uvApiToken })
-      }),
-      fetch('/api/categories', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subdomain: uvSubdomain, apiToken: uvApiToken })
-      })
+      fetch('/api/ideas', { method: 'POST', headers: authHeaders() }),
+      fetch('/api/categories', { method: 'POST', headers: authHeaders() })
     ]);
 
+    if (ideasRes.status === 401 || catRes.status === 401) {
+      logout();
+      setStatus('Session expired — please log in again', 'error');
+      return;
+    }
+
     const data = await ideasRes.json();
+    if (data.error) {
+      setStatus(data.error, 'error');
+      return;
+    }
     allIdeas = (data.suggestions || []).map(idea => ({
       ...idea,
       category: idea.links && idea.links.category
@@ -432,11 +477,7 @@ async function refreshData() {
     setStatus('Fetching comments...', 'loading');
     commentsByIdea = {};
     try {
-      const commentsRes = await fetch('/api/all-comments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subdomain: uvSubdomain, apiToken: uvApiToken })
-      });
+      const commentsRes = await fetch('/api/all-comments', { method: 'POST', headers: authHeaders() });
       const commentsData = await commentsRes.json();
       (commentsData.comments || []).forEach(c => {
         const sid = commentSuggestionId(c);
@@ -722,7 +763,7 @@ async function analyzeThemes(idea, comments) {
   try {
     const response = await fetch('/api/analyze-themes', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({ title: idea.title, comments: bodies })
     });
     const data = await response.json();
@@ -760,11 +801,28 @@ app.get('/test', (req, res) => {
   res.json({ message: 'Backend is working!' });
 });
 
-app.post('/api/ideas', async (req, res) => {
-  const { apiToken, subdomain } = req.body;
+app.post('/api/login', (req, res) => {
+  const { password } = req.body;
+  const expectedPassword = process.env.DASHBOARD_PASSWORD;
+
+  if (!expectedPassword) {
+    return res.status(500).json({ error: 'DASHBOARD_PASSWORD not configured on the server' });
+  }
+
+  if (password !== expectedPassword) {
+    return res.status(401).json({ error: 'Incorrect password' });
+  }
+
+  const token = signToken({ exp: Date.now() + SESSION_TTL_MS });
+  res.json({ token });
+});
+
+app.post('/api/ideas', requireAuth, async (req, res) => {
+  const subdomain = process.env.UV_SUBDOMAIN;
+  const apiToken = process.env.UV_API_TOKEN;
 
   if (!apiToken || !subdomain) {
-    return res.status(400).json({ error: 'Missing credentials' });
+    return res.status(500).json({ error: 'UV_SUBDOMAIN / UV_API_TOKEN not configured on the server' });
   }
 
   try {
@@ -782,11 +840,12 @@ app.post('/api/ideas', async (req, res) => {
   }
 });
 
-app.post('/api/all-comments', async (req, res) => {
-  const { apiToken, subdomain } = req.body;
+app.post('/api/all-comments', requireAuth, async (req, res) => {
+  const subdomain = process.env.UV_SUBDOMAIN;
+  const apiToken = process.env.UV_API_TOKEN;
 
   if (!apiToken || !subdomain) {
-    return res.status(400).json({ error: 'Missing credentials' });
+    return res.status(500).json({ error: 'UV_SUBDOMAIN / UV_API_TOKEN not configured on the server' });
   }
 
   try {
@@ -804,11 +863,12 @@ app.post('/api/all-comments', async (req, res) => {
   }
 });
 
-app.post('/api/categories', async (req, res) => {
-  const { apiToken, subdomain } = req.body;
+app.post('/api/categories', requireAuth, async (req, res) => {
+  const subdomain = process.env.UV_SUBDOMAIN;
+  const apiToken = process.env.UV_API_TOKEN;
 
   if (!apiToken || !subdomain) {
-    return res.status(400).json({ error: 'Missing credentials' });
+    return res.status(500).json({ error: 'UV_SUBDOMAIN / UV_API_TOKEN not configured on the server' });
   }
 
   try {
@@ -856,7 +916,7 @@ app.post('/api/categories', async (req, res) => {
 const PORTKEY_MODEL = process.env.PORTKEY_MODEL || '@bedrock/global.anthropic.claude-sonnet-4-6';
 const PORTKEY_GATEWAY_URL = process.env.PORTKEY_GATEWAY_URL || 'https://llm-gateway.xgw.xero-test.com/v1/chat/completions';
 
-app.post('/api/analyze-themes', async (req, res) => {
+app.post('/api/analyze-themes', requireAuth, async (req, res) => {
   const { title, comments } = req.body;
 
   if (!process.env.PORTKEY_API_KEY) {
